@@ -77,7 +77,9 @@ every slot past `Release`, as before.
 
 `LEONIDA_INPUT_FILE=<path>` drives a run whose display takes no keyboard input (a headless session): every line
 appended to that file names one button of the script's table (`a`, `down`, ...) and becomes a press at once, held
-like a scripted one. The file is read again at most every 250 ms. It is for local runs only.
+like a scripted one. Append `a:10` to hold A for 10 seconds. Durations use the same limits as
+`LEONIDA_INPUT_SCRIPT` (greater than zero, up to 600 seconds). The file is read again at most every 250 ms.
+It is for local runs only.
 
 `scripts/build_runtime.ps1` (what `make_game.py` runs) builds the shim only on its CMake path, when Visual Studio's
 C++ CMake tools are installed. Its direct-`cl.exe` fallback compiles a fixed file list without the shim and warns

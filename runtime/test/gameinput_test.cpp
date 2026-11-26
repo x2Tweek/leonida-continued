@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <string>
@@ -26,6 +27,7 @@
 #include "gameinput.h"
 #include "gameinput_abi.h"
 #include "shims.h"
+#include "test_temp_dir.h"
 
 using namespace gi;
 
@@ -1701,6 +1703,7 @@ int main(int argc, char** argv) {
     set_env("LEONIDA_GAMEINPUT_THREAD", "0");
     set_env("LEONIDA_KEYBOARD_PAD", nullptr);
     set_env("LEONIDA_INPUT_SCRIPT", nullptr);
+    _putenv_s("LEONIDA_INPUT_FILE", "");
     set_env("LEONIDA_DS_TRIGGERS", nullptr);
     set_env("LEONIDA_DS_LIGHTBAR", nullptr);
     set_env("LEONIDA_RUMBLE", nullptr);
@@ -1724,6 +1727,13 @@ int main(int argc, char** argv) {
                 "start@3600,start@3600,start@3600,start@3600,start@3600,start@3600, X@0 \t,x@3600,"
                 "unknown@0,a@,a@x,,a@-0.1,a@nan,a@inf,a@1e999,a@0tail, ,y@0:0.6,"
                 "a@0:0,a@0:-1,a@0:,a@0:x,a@0:inf,a@0:601,a@0:1tail");
+        const testfiles::ScratchDir scratch("leonida_gameinput_file");
+        const auto input_path = (scratch.path() / "presses.txt").string();
+        FILE* file = std::fopen(input_path.c_str(), "w");
+        if (!file) return 1;
+        std::fputs("a:1.5\nup\ndown:0\ndown:601\ndown:1tail\n", file);
+        std::fclose(file);
+        if (_putenv_s("LEONIDA_INPUT_FILE", input_path.c_str()) != 0) return 1;
         set_env("LEONIDA_KEYBOARD_PAD", "1");
         rt::gameinput::set_keyboard_source(fake_key_down, fake_focus);
         rt::gameinput::set_cursor_source(fake_cursor);
@@ -1732,7 +1742,8 @@ int main(int argc, char** argv) {
         rt::gameinput::reload_config();
         rt::gameinput::poll();
         const auto buttons = pad_state(input, nullptr).buttons;
-        const auto expected = GameInputGamepadX | GameInputGamepadB | GameInputGamepadY;
+        const auto file_buttons = GameInputGamepadA | GameInputGamepadDPadUp;
+        const auto expected = GameInputGamepadX | GameInputGamepadB | GameInputGamepadY | file_buttons;
         check((buttons & expected) == expected,
               "long script: the spaced X after byte 63, the held Y and the physical B are held");
         check((buttons & ~expected) == 0, "malformed script entries hold no extra buttons");
@@ -1740,7 +1751,7 @@ int main(int argc, char** argv) {
         set_env("LEONIDA_INPUT_SCRIPT", "y@0");
         rt::gameinput::reload_config();
         rt::gameinput::poll();
-        check(pad_state(input, nullptr).buttons == (GameInputGamepadX | GameInputGamepadY),
+        check(pad_state(input, nullptr).buttons == (GameInputGamepadX | GameInputGamepadY | file_buttons),
               "scripted X and Y survive focus loss; reload does not replace the script with y@0");
         Sleep(350);
         g_focus = true;
@@ -1748,16 +1759,19 @@ int main(int argc, char** argv) {
         // A scripted press lasts its hold (300 ms, or button@seconds:hold) and then until the title has read the pads
         // six times since it began (update_keyboard_pad: kReads), so a title that polls slowly still sees it. Each
         // pad_state() is one GetCurrentReading, and this is the third since X and Y began.
-        check(pad_state(input, nullptr).buttons == (GameInputGamepadX | GameInputGamepadB | GameInputGamepadY),
+        check(pad_state(input, nullptr).buttons == expected,
               "long script: past its 300 ms X is still held while the title has read the pads fewer than six times");
         for (int i = 0; i < 6; ++i) pad_state(input, nullptr);
         rt::gameinput::poll();
-        check(pad_state(input, nullptr).buttons == (GameInputGamepadB | GameInputGamepadY),
-              "long script: X ends once the title has read it, y@0:0.6 is still held for its time, the key stays held");
+        check(pad_state(input, nullptr).buttons == (GameInputGamepadB | GameInputGamepadY | GameInputGamepadA),
+              "X and plain file Up release after six reads; scripted Y, file A and physical B stay held");
         Sleep(400);
         rt::gameinput::poll();
-        check(pad_state(input, nullptr).buttons == GameInputGamepadB,
-              "long script: Y is released after its 0.6 s hold, the title having read it six times");
+        check(pad_state(input, nullptr).buttons == (GameInputGamepadB | GameInputGamepadA),
+              "scripted Y ends after 0.6 s and file A stays held for 1.5 s");
+        Sleep(850);
+        rt::gameinput::poll();
+        check(pad_state(input, nullptr).buttons == GameInputGamepadB, "file A ends after the explicit hold");
         input->Release();
         std::printf("%d checks, %d failures\n", g_checks, g_failures);
         return g_failures ? 1 : 0;

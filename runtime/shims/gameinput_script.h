@@ -60,6 +60,15 @@ struct Script {
     bool empty() const { return presses.empty(); }
 };
 
+// Read a hold duration followed only by optional whitespace.
+inline bool parse_hold(const char* text, double& hold) {
+    char* tail;
+    hold = std::strtod(text, &tail);
+    if (tail == text || !std::isfinite(hold) || hold <= 0 || hold > kMaxHoldSeconds) return false;
+    while (std::isspace(static_cast<unsigned char>(*tail))) ++tail;
+    return *tail == '\0';
+}
+
 // The script in `text`, matched without regard to case.
 inline Script parse(std::string text) {
     for (auto& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -80,11 +89,10 @@ inline Script parse(std::string text) {
         if (tail == time || !std::isfinite(seconds) || seconds < 0) continue;
         double hold = kHoldSeconds;
         if (*tail == ':') {
-            const char* hold_text = tail + 1;
-            hold = std::strtod(hold_text, &tail);
-            if (tail == hold_text || !std::isfinite(hold) || hold <= 0 || hold > kMaxHoldSeconds) continue;
+            if (!parse_hold(tail + 1, hold)) continue;
+        } else if (item.find_first_not_of(whitespace, static_cast<size_t>(tail - item.c_str())) != std::string::npos) {
+            continue;
         }
-        if (item.find_first_not_of(whitespace, static_cast<size_t>(tail - item.c_str())) != std::string::npos) continue;
         const auto is = [&](const char* name) { return item.compare(first, sep - first, name) == 0; };
         if (is("rsup") || is("rsdown")) {
             out.presses.push_back({0, is("rsup") ? 1 : -1, seconds, hold});

@@ -47,6 +47,7 @@
 #include <mutex>
 #include <map>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -1903,10 +1904,11 @@ void update_keyboard_pad() {
     }();
     // LEONIDA_INPUT_FILE=<path> (local, for headless runs whose display takes no keyboard input): every line appended
     // to the file names one button of gameinput_script.h's table ("a", "down", ...) and becomes a press at once, held
-    // like a scripted one (300 ms and six readings, at most 5 s). The file is read again at most every 250 ms.
+    // like a scripted one. A button:seconds line overrides the default 300 ms hold. Poll at most every 250 ms.
     struct FilePress {
         uint32_t bit;
         double at;
+        double hold;
         uint64_t began;
         bool started;
     };
@@ -1940,11 +1942,17 @@ void update_keyboard_pad() {
                         while (!name.empty() && (name.back() == '\n' || name.back() == '\r' || name.back() == ' '))
                             name.pop_back();
                         bool known = false;
-                        for (const script::Button& b : script::kButtons)
-                            if (name == b.name) {
-                                file_presses.push_back({b.bit, now, 0, false});
-                                known = true;
+                        double hold = script::kHoldSeconds;
+                        const auto separator = name.find(':');
+                        const auto button = std::string_view(name).substr(0, separator);
+                        if (separator == std::string::npos || script::parse_hold(name.c_str() + separator + 1, hold)) {
+                            for (const script::Button& b : script::kButtons) {
+                                if (button == b.name) {
+                                    file_presses.push_back({b.bit, now, hold, 0, false});
+                                    known = true;
+                                }
                             }
+                        }
                         std::fprintf(stderr, "[rt] gameinput: input file line %zu \"%s\" at %.1f s%s\n", n,
                                      name.c_str(), now, known ? "" : " (unknown button, ignored)");
                     }
@@ -1952,12 +1960,12 @@ void update_keyboard_pad() {
                 }
             }
             for (auto& p : file_presses) {
-                if (now < p.at || now >= p.at + kMaxHold) continue;
+                if (now < p.at || now >= p.at + std::max(p.hold, kMaxHold)) continue;
                 if (!p.started) {
                     p.started = true;
                     p.began = calls;
                 }
-                if (now < p.at + 0.3 || calls - p.began < kReads) held.buttons |= p.bit;
+                if (now < p.at + p.hold || calls - p.began < kReads) held.buttons |= p.bit;
             }
         }
         for (std::size_t i = 0; i < scripted.presses.size(); ++i) {
