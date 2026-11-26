@@ -513,10 +513,17 @@ uint64_t folder_bytes(const std::filesystem::path& dir) {
     return total;
 }
 
+// Return a directory prefix that callers can append a relative name to.
+std::string persistent_storage_path() {
+    std::string path = utf8_of(persistent_storage_dir().native());
+    if (!path.empty() && path.back() != '\\') path += '\\';
+    return path;
+}
+
 HRESULT STDMETHODCALLTYPE pls_get_path_size(void*, size_t* path_size) {
     if (!path_size) return E_POINTER;
     *path_size = 0;
-    const std::string path = utf8_of(persistent_storage_dir().native());
+    const std::string path = persistent_storage_path();
     if (path.empty()) return HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
     *path_size = path.size() + 1;  // with the terminating NUL
     return S_OK;
@@ -525,7 +532,7 @@ HRESULT STDMETHODCALLTYPE pls_get_path_size(void*, size_t* path_size) {
 HRESULT STDMETHODCALLTYPE pls_get_path(void*, size_t path_size, char* path, size_t* path_used) {
     if (path_used) *path_used = 0;
     if (!path) return E_POINTER;
-    const std::string folder = utf8_of(persistent_storage_dir().native());
+    const std::string folder = persistent_storage_path();
     if (folder.empty()) return HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
     if (path_size < folder.size() + 1) {
         // A short buffer is left untouched but learns the size it needs: the path with its NUL, as slot 3 reports.

@@ -569,16 +569,18 @@ void check_run_time_load() {
         using Mount = HRESULT(STDMETHODCALLTYPE*)(void*, const char*, void**);
 
         size_t size = 0;
-        check(reinterpret_cast<GetPathSize>(slot(pls, 3))(pls, &size) == S_OK && size > 1,
+        check(reinterpret_cast<GetPathSize>(slot(pls, 3))(pls, &size) == S_OK && size > 2,
               "slot 3 (GetPathSize) reports the length of the path with its NUL");
         std::string path(size, '\xA5');
         size_t used = 0;
         check(reinterpret_cast<GetPath>(slot(pls, 4))(pls, size, path.data(), &used) == S_OK && used == size &&
-                  path[size - 1] == '\0',
+                  size > 2 && path[size - 2] == '\\' && path[size - 1] == '\0',
               "slot 4 (GetPath) fills the buffer and reports the bytes used");
-        const std::filesystem::path folder = std::filesystem::path(path.c_str());
+        const std::filesystem::path folder = std::filesystem::path(path.c_str()).parent_path();
         check(folder == scratch / L"overlay" / L".gta6rt-persistent" && std::filesystem::is_directory(folder),
               "the path is <overlay>\\.gta6rt-persistent and the folder exists");
+        const std::filesystem::path appended = std::filesystem::path(std::string(path.c_str()) + "settings");
+        check(appended == folder / L"settings", "the returned path can be used as a directory prefix");
         char tiny[2] = {'x', 'x'};
         used = 99;
         check(reinterpret_cast<GetPath>(slot(pls, 4))(pls, 2, tiny, &used) == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
